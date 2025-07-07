@@ -1,0 +1,19 @@
+Copyright © 2025 Ricardo Fitas. All rights reserved.
+
+This software is provided for academic viewing and reference purposes only.
+
+You are permitted to:
+- View and read the source code.
+- Cite this software or its DOI in academic work.
+
+You are NOT permitted to:
+- Modify, adapt, or debug this software.
+- Redistribute this code or any modified version.
+- Use this software for commercial purposes.
+- Integrate any part of this code into other software projects.
+
+This code is licensed under a “source-available, no-modification” model.
+
+To request permission for use beyond these terms, contact: rfitas99@gmail.com
+
+License version: 1.0 — July 2025
