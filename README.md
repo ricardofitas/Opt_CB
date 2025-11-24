@@ -10,7 +10,7 @@ $~$
 
 <p align="center">
   <!-- Placeholder: replace with an overview figure of the corrugated board optimization pipeline -->
-  <img src="figures/opt_cb_overview_placeholder.png" alt="Placeholder for Opt_CB overview figure" width="700">
+  <img src="figures/pres.png" alt="Presentation Repo" width="700">
 </p>
 
 ## 🎯 Overview
@@ -48,7 +48,7 @@ The goal is to explore trade-offs between **mechanical performance** (stiffness,
 
 <p align="center">
   <!-- Placeholder: replace with a figure showing geometry parametrization or Pareto front -->
-  <img src="figures/opt_cb_pareto_placeholder.png" alt="Placeholder for Pareto front or geometry figure" width="600">
+  <img src="figures/Pareto_fronts.png" alt="Pareto front" width="600">
 </p>
 
 ---
@@ -343,5 +343,6 @@ For questions, collaboration, or permission requests, please contact:
 - **Author**: Ricardo Fitas  
 - **Email**: rfitas99@gmail.com  
 - **GitHub**: [@ricardofitas](https://github.com/ricardofitas)
+- **LinkedIn**: [Ricardo Fitas](https://www.linkedin.com/in/ricardo-fitas-167bba164/)
 
 If you use or reference this code in academic work, please consider citing the corresponding publications once available.
