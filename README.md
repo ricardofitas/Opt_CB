@@ -315,6 +315,72 @@ Depending on the script and configuration, you may obtain:
 
 ---
 
+## 📊 Example: A- and B-Flute Effective Stiffness (CMT/FCT surrogate)
+
+To illustrate how to use the homogenization routine `Optimization_CB.calculate_ez`, we compute the expected through-thickness and in-plane stiffnesses for two standard flute geometries:
+
+- **A-flute**: pitch 8.55 mm, height 4.75 mm  
+- **B-flute**: pitch 6.45 mm, height 2.50 mm  
+
+The function signature is:
+
+```python
+from Optimization_CB import calculate_ez
+
+Ezeff, Eyeff, th = calculate_ez(X)
+```
+
+where `X = [t_liner, t_flute, pitch, height]` is given in **meters**.
+
+### A-flute: 8.55 mm pitch, 4.75 mm height
+
+We evaluate:
+
+```python
+from Optimization_CB import calculate_ez
+
+X_A = [0.0002, 0.0002, 0.00855, 0.00475]
+Ezeff_A, Eyeff_A, th_A = calculate_ez(X_A)
+print(Ezeff_A, Eyeff_A, th_A)
+```
+
+Result:
+
+- `Ezeff_A = 24_871_527.327246647 Pa  ≈ 2.487 × 10⁷ Pa  (≈ 24.9 MPa)`
+- `Eyeff_A = 433_222_151.62266856 Pa ≈ 4.332 × 10⁸ Pa (≈ 433.2 MPa, ≈ 0.43 GPa)`
+- `th_A    = 5.339178017788088e-06 m ≈ 5.34 μm` (effective homogenized thickness)
+
+### B-flute: 6.45 mm pitch, 2.50 mm height
+
+We evaluate:
+
+```python
+from Optimization_CB import calculate_ez
+
+X_B = [0.0002, 0.0002, 0.00645, 0.0025]
+Ezeff_B, Eyeff_B, th_B = calculate_ez(X_B)
+print(Ezeff_B, Eyeff_B, th_B)
+```
+
+Result:
+
+- `Ezeff_B = 22_180_643.83644492 Pa  ≈ 2.218 × 10⁷ Pa  (≈ 22.2 MPa)`
+- `Eyeff_B = 700_678_066.5402967 Pa  ≈ 7.007 × 10⁸ Pa (≈ 700.7 MPa, ≈ 0.70 GPa)`
+- `th_B    = 2.9016740773635114e-06 m ≈ 2.90 μm` (effective homogenized thickness)
+
+### Interpretation (CMT / FCT perspective)
+
+Within this model, `Ezeff` acts as a **through-thickness stiffness proxy**, which can be related to **FCT/CMT-type responses** under linear-elastic assumptions, while `Eyeff` captures the effective in-plane stiffness in the cross direction.
+
+For identical paper parameters:
+
+- A-flute shows a **slightly higher through-thickness stiffness** (`Ezeff`) than B-flute.  
+- B-flute shows a **higher in-plane stiffness** (`Eyeff`) due to its more compact geometry.
+
+These values provide a quantitative starting point for comparing flute geometries before calibrating against experimental CMT/FCT data.
+
+---
+
 ## 📜 License
 
 This repository is licensed under a **custom source-available, no-modification license**.
