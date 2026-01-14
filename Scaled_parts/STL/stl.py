@@ -4,7 +4,7 @@ import numpy as np
 # User configuration
 # ===========================
 INPUT_FILE = "local_curve_3.txt"   # TXT/CSV with two columns: x y
-OUTPUT_STL = "corrugator3b.stl"    # output STL file
+OUTPUT_STL = "corrugator3c.stl"    # output STL file
 N_REPETITIONS = 2                 # how many times to repeat the curve
 FRACTION_BASE_HEIGHT = 0.25       # how far below y_min (as a fraction of total height)
 EXTRUSION_HEIGHT = 10.0           # thickness in Z

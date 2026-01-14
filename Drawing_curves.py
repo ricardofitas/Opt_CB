@@ -10,9 +10,9 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 
 # Parameters for the curve
-lambda_ = 5.65e-3  # wavelength
-Amp = 2.65e-3      # amplitude
-num_waves = 5
+lambda_ = 5.65e-3*10/2.65  # wavelength
+Amp = 2.65e-3*10/2.65      # amplitude
+num_waves =1
 
 # Generate x values for 5 waves
 x = np.linspace(0, num_waves * lambda_, 1000)
@@ -57,9 +57,7 @@ def full_opt_process(params):
     return 1.0, 1.0, params[-2], params[-1]
 
 def opt_calc_prod(X, num_waves=5):
-    lambda_ = 5.65e-3
-    Amp = 2.65e-3
-
+    
     suma = X[0] + X[1] + X[2] + X[3] + X[4]
     d1 = X[0] / suma
     d2 = X[1] / suma
@@ -127,9 +125,9 @@ def opt_calc_prod(X, num_waves=5):
 
 # Running the function for all 3 cases
 cases = {
-    "Caso 1": [0.1, 0.1, 10, 0.1, 10, 0.536972299, 0.561127743],
-    "Caso 2": [3.522855914, 6.166853059, 3.650503401, 10, 1.923928021, 0.254534082, 0.99051799],
-    "Caso 3": [5.545192772, 0.1, 9.380469802, 0.625598768, 0.974769034, 0, 0]
+    "Caso 1": [1.791214375,	0.334639907,	8.487148517,	1.173761631,	10,	0,	0],
+    "Caso 2": [0.1,	9.645485035,	0.1,	10,	0.1, 	1,	1],
+    "Caso 3": [1.383607899,	2.549796399,	5.818867374,	6.456406202,	5.142503464,	0.373052427,	0.471046705],
 }
 
 for case_name, X in cases.items():
@@ -140,8 +138,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Parâmetros da função senoide
-lambda_ = 5.65e-3  # comprimento de onda [m]
-Amp = 2.65e-3      # amplitude [m]
+lambda_ = 5.65e-3*10/5.65  # comprimento de onda [m]
+Amp = 2.65e-3*10/2.65      # amplitude [m]
 num_waves = 5
 
 # Geração dos dados
