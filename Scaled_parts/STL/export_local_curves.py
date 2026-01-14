@@ -179,8 +179,8 @@ def export_cases_to_txt(
 
 if __name__ == "__main__":
     # === Set your physical scaling here (same constants appear in Drawing_curves.py) ===
-    lambda_ = 5.65e-3 * 10 / 2.65  # wavelength [m] (as in the later sine script block)
-    Amp = 2.65e-3 * 10 / 2.65      # amplitude [m]
+    lambda_ = 5.65 * 10 / 2.65  # wavelength [m] (as in the later sine script block)
+    Amp = 2.65 * 10 / 2.65      # amplitude [m]
 
     # === Provide your 7-parameter cases here ===
     cases = {
