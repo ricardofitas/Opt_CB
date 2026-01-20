@@ -150,6 +150,32 @@ def write_xy_txt(path: str, x: np.ndarray, y: np.ndarray, *, decimals: int = 6) 
         for xi, yi in zip(x, y):
             f.write((fmt % (float(xi), float(yi))) + "\n")
 
+def generate_sine_curve_points(
+    *,
+    lambda_: float,
+    Amp: float,
+    sample_size: int = 2000,
+    make_x_start_at_zero: bool = True,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Generate a sinusoidal local profile over one wavelength.
+
+    Output matches the other files: x in [0, lambda_], y in [0, Amp],
+    starting and ending at y=0.
+    """
+    n = int(sample_size)
+    if n < 2:
+        raise ValueError("sample_size must be >= 2")
+
+    x = np.linspace(0.0, float(lambda_), n)
+
+    # Sinusoidal shape with y(0)=y(lambda)=0 and max(y)=Amp
+    y = 0.5 * float(Amp) * (1.0 - np.cos(2.0 * np.pi * x / float(lambda_)))
+
+    if make_x_start_at_zero:
+        x = x - x[0]
+
+    return x, y
 
 def export_cases_to_txt(
     cases: dict[str, list[float]],
@@ -190,3 +216,6 @@ if __name__ == "__main__":
     }
 
     export_cases_to_txt(cases, lambda_=lambda_, Amp=Amp, sample_size=2000)
+    x_sine, y_sine = generate_sine_curve_points(lambda_=lambda_, Amp=Amp, sample_size=2000)
+    write_xy_txt("local_curve_sine.txt", x_sine, y_sine, decimals=6)
+    print(f"[OK] Sine -> local_curve_sine.txt ({len(x_sine)} points)")

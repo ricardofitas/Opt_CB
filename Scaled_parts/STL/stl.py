@@ -3,15 +3,102 @@ import numpy as np
 # ===========================
 # User configuration
 # ===========================
-INPUT_FILE = "local_curve_3.txt"   # TXT/CSV with two columns: x y
-OUTPUT_STL = "corrugator3c.stl"    # output STL file
-N_REPETITIONS = 2                 # how many times to repeat the curve
+INPUT_FILE = "local_curve_sine.txt"   # TXT/CSV with two columns: x y
+OUTPUT_STL = "corrugator_v2_sine.stl"    # output STL file
+PLOT_2D_DRAWING = True
+DRAWING_FILE = "corrugator_sine_2d.pdf"  # podes usar .png, .svg, .pdf
+N_REPETITIONS = 10                 # how many times to repeat the curve
 FRACTION_BASE_HEIGHT = 0.25       # how far below y_min (as a fraction of total height)
-EXTRUSION_HEIGHT = 10.0           # thickness in Z
+EXTRUSION_HEIGHT = 25.0           # thickness in Z
 PLOT_CURVE = True                 # <- set True to see the curve
 SAVE_PLOT_AS = None               # e.g. "curve.png" to also save, or None
+PITCH_X = None
+
+def compute_main_dimensions(curve_xy, y_base, dx, n_rep, extrusion_width):
+    x = curve_xy[:, 0]
+    y = curve_xy[:, 1]
+    x_min, x_max = float(np.min(x)), float(np.max(x))
+    y_min, y_max = float(np.min(y)), float(np.max(y))
+
+    width_x = x_max - x_min                  # largura de 1 período (da curva original)
+    L = width_x + (n_rep - 1) * dx           # comprimento total correto
+
+    H = y_max - y_base
+    H_curve = y_max - y_min
+    base_drop = y_min - y_base
+
+    return {
+        "pitch_x": dx,
+        "width_one": width_x,
+        "length_x": L,
+        "y_base": y_base,
+        "y_max": y_max,
+        "height_total": H,
+        "height_curve": H_curve,
+        "base_drop": base_drop,
+        "extrusion_width_z": extrusion_width,
+        "x0": x_min,
+        "x1": x_min + L,
+    }
 
 
+
+def plot_2d_with_dimensions(curve_xy, y_base, dx, n_rep, dims, save_path=None, title="2D profile with main dimensions"):
+    import matplotlib.pyplot as plt
+
+    x0 = dims["x0"]
+    x1 = dims["x1"]
+    y_max = dims["y_max"]
+    H = dims["height_total"]
+
+    # repetir curva para desenho
+    xs_all = []
+    ys_all = []
+    for k in range(n_rep):
+        xs_all.append(curve_xy[:, 0] + k * dx)
+        ys_all.append(curve_xy[:, 1])
+
+    fig, ax = plt.subplots()
+    for k in range(n_rep):
+        ax.plot(xs_all[k], ys_all[k])
+
+    # linha de base
+    ax.plot([x0, x1], [y_base, y_base])
+
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title(title)
+    ax.grid(True, which="both", alpha=0.3)
+
+    # offsets para as cotas
+    off = 0.12 * H if H > 0 else 1.0
+
+    # cota comprimento L
+    y_dim = y_base - off
+    ax.annotate("", xy=(x0, y_dim), xytext=(x1, y_dim),
+                arrowprops=dict(arrowstyle="<->"))
+    ax.text((x0 + x1) / 2, y_dim, f"L = {dims['length_x']:.3f}",
+            ha="center", va="bottom")
+
+    # cota altura H
+    x_dim = x0 - 0.08 * dims["length_x"] if dims["length_x"] > 0 else x0 - 1.0
+    ax.annotate("", xy=(x_dim, y_base), xytext=(x_dim, y_max),
+                arrowprops=dict(arrowstyle="<->"))
+    ax.text(x_dim, (y_base + y_max) / 2, f"H = {dims['height_total']:.3f}",
+            ha="right", va="center", rotation=90)
+
+    # anotação da largura de extrusão (Z)
+    ax.text(x0, y_max + off * 0.3, f"Wz (extrusão) = {dims['extrusion_width_z']:.3f}",
+            ha="left", va="bottom")
+
+    # enquadrar melhor
+    ax.set_xlim(x0 - 0.15 * dims["length_x"], x1 + 0.05 * dims["length_x"])
+    ax.set_ylim(y_dim - off * 0.2, y_max + off)
+
+    if save_path:
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
+    plt.show()
+    
 def load_curve(path):
     """
     Reads (x, y) points from a TXT/CSV file.
@@ -205,21 +292,36 @@ def main():
     # 2) Build base polygon (area under the curve)
     polygon, y_base = build_base_polygon(curve, FRACTION_BASE_HEIGHT)
 
-    # 3) Extrude to a 3D volume
+    # 3) Extrude to a 3D volume (Z = "largura/espessura")
     triangles = extrude_polygon(polygon, EXTRUSION_HEIGHT)
 
-    # 4) Determine width in X for spacing repetitions
+    # 4) Determine width in X and choose pitch dx
     x = curve[:, 0]
     width_x = float(np.max(x) - np.min(x))
+    dx = width_x if PITCH_X is None else float(PITCH_X)
 
-    # 5) Repeat mesh along X
-    repeated_triangles = repeat_mesh(triangles, width_x, N_REPETITIONS)
+    # 5) Repeat mesh along X (IMPORTANT: use dx, not width_x)
+    repeated_triangles = repeat_mesh(triangles, dx, N_REPETITIONS)
 
     # 6) Save STL
     write_stl_ascii(OUTPUT_STL, repeated_triangles)
 
     print(f"STL generated at '{OUTPUT_STL}'")
     print(f"y_base = {y_base:.3f}")
+    print(f"width_x (1 periodo) = {width_x:.3f}")
+    print(f"dx (pitch) = {dx:.3f}")
+
+    # 7) 2D drawing with dimensions
+    dims = compute_main_dimensions(curve, y_base, dx, N_REPETITIONS, EXTRUSION_HEIGHT)
+    if PLOT_2D_DRAWING:
+        plot_2d_with_dimensions(curve, y_base, dx, N_REPETITIONS, dims, save_path=DRAWING_FILE)
+
+    print("Dimensões principais:")
+    for k, v in dims.items():
+        if isinstance(v, float):
+            print(f"  {k}: {v:.6f}")
+        else:
+            print(f"  {k}: {v}")
 
 
 if __name__ == "__main__":
