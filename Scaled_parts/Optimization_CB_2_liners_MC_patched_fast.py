@@ -5,6 +5,35 @@ import scipy.integrate as spi
 from sympy import symbols, sin, cos, atan, pi, Matrix, simplify, integrate
 from scipy.integrate import quad
 
+
+# ------------------------------------------------------------
+# Material data + Monte Carlo helpers
+# Units:
+#   - E in Pa (MPa * 1e6)
+#   - thickness in m (mm * 1e-3)
+# ------------------------------------------------------------
+MATERIALS = {
+    "uncoated": {
+        "E1_mean": 2899.0e6,   # MD
+        "E1_std":   33.48e6,
+        "E2_mean": 1044.4e6,   # CD
+        "E2_std":   19.44e6,
+        "t_paper": 0.525e-3,
+    },
+    "coated": {
+        "E1_mean": 2794.0e6,   # MD
+        "E1_std":   63.98e6,
+        "E2_mean": 1162.0e6,   # CD
+        "E2_std":   25.73e6,
+        "t_paper": 0.517e-3,
+    },
+}
+
+def _sample_positive_normal(mean: float, std: float, size: int, rng: np.random.Generator, min_value: float = 1.0e6):
+    """Normal sampling with a simple positivity safeguard (COV is small, so clipping is effectively never active)."""
+    samples = rng.normal(mean, std, size)
+    return np.maximum(samples, min_value)
+
 def expected_arc_length(A, lambda_, t):
         omega = 2 * np.pi / lambda_
 
@@ -33,130 +62,116 @@ def weight(X):
 
     return total_area
 
-def calculate_ez(X):
 
-    for i in X:
-        i *= 0.001
 
-    t = X[1]
-    p = X[2]
-    f_start = X[3]
+def calculate_ez(X, E1=7e9, E2=None, n_int: int = 2000):
+    """Compute Ezeff and Eyeff (numeric, fast).
 
-    # Constants
-    #E1 = 1.709e9     # Young's modulus MD [Pa]
-    #E2 = 0.918e9     # Young's modulus CD [Pa]
-    #E3 = E1/190  # E1 / 190
+    Notes
+    -----
+    - Uses a fixed-grid numerical integration over one wavelength.
+    - Uses the rotated compliance at x=0 (same assumption as the original code).
+    """
+    X = np.asarray(X, dtype=float)
+    if E2 is None:
+        E2 = E1 / 2.0
+    E3 = E1 / 190.0
 
-    E1 = 1e9
-    E2 = E1/2
-    E3 = E1/190
+    t = float(X[1])
+    p = float(X[2])
+    f_start = float(X[3])
 
-    h = f_start + t        # Core height [m]
-
+    # Engineering constants
     G12 = 0.387 * np.sqrt(E1 * E2)     # Baum, 1981
     nu12 = 0.293 * np.sqrt(E1 / E2)
-    G13 = E1 / 55    # Baum et al., 1981
-    G23 = E2 / 35    # Baum et al., 1981
-    nu13 = 0.001     # Nordstrand, 1995
-    nu23 = 0.001     # Nordstrand, 1995
+    G13 = E1 / 55                      # Baum et al., 1981
+    G23 = E2 / 35                      # Baum et al., 1981
+    nu13 = 0.001                       # Nordstrand, 1995
+    nu23 = 0.001                       # Nordstrand, 1995
 
-    # Flute geometry
-    x = symbols('x')
-    a = 2 * pi / p
-    b = pi * f_start / p
-    H = (f_start / 2) * sin(a * x)        # Flute profile
-    theta = atan(b * cos(a * x))    # Rotation angle at x
+    # Compliance matrix (material principal axes)
+    C123 = np.array([
+        [1 / E1, -nu12 / E1, -nu13 / E1, 0, 0, 0],
+        [-nu12 / E1, 1 / E2, -nu23 / E2, 0, 0, 0],
+        [-nu13 / E1, -nu23 / E2, 1 / E3, 0, 0, 0],
+        [0, 0, 0, 1 / G12, 0, 0],
+        [0, 0, 0, 0, 1 / G13, 0],
+        [0, 0, 0, 0, 0, 1 / G23],
+    ], dtype=float)
 
-    # Material compliance matrix
-    C123 = Matrix([[1 / E1, -nu12 / E1, -nu13 / E1, 0, 0, 0],
-                   [-nu12 / E1, 1 / E2, -nu23 / E2, 0, 0, 0],
-                   [-nu13 / E1, -nu23 / E2, 1 / E3, 0, 0, 0],
-                   [0, 0, 0, 1 / G12, 0, 0],
-                   [0, 0, 0, 0, 1 / G13, 0],
-                   [0, 0, 0, 0, 0, 1 / G23]])
+    # Rotation at x=0 (same as original code with Cxyz.subs(x,0))
+    b = np.pi * f_start / p
+    theta0 = np.arctan(b)
+    c = np.cos(theta0)
+    s = np.sin(theta0)
 
-    # Transformation matrices for rotation about y-axis
-    c = cos(theta)
-    s = sin(theta)
+    Te = np.array([
+        [c**2, 0, s**2, 0, -s*c, 0],
+        [0, 1, 0, 0, 0, 0],
+        [s**2, 0, c**2, 0, s*c, 0],
+        [0, 0, 0, c, 0, -s],
+        [2*s*c, 0, -2*s*c, 0, c**2 - s**2, 0],
+        [0, 0, 0, -s, 0, c],
+    ], dtype=float)
 
-    Te = Matrix([[c**2, 0, s**2, 0, -s*c, 0],
-                 [0, 1, 0, 0, 0, 0],
-                 [s**2, 0, c**2, 0, s*c, 0],
-                 [0, 0, 0, c, 0, -s],
-                 [2*s*c, 0, -2*s*c, 0, c**2 - s**2, 0],
-                 [0, 0, 0, -s, 0, c]])
+    Ts = np.array([
+        [c**2, 0, s**2, 0, 2*s*c, 0],
+        [0, 1, 0, 0, 0, 0],
+        [s**2, 0, c**2, 0, -2*s*c, 0],
+        [0, 0, 0, c, 0, s],
+        [-s*c, 0,  s*c, 0, c**2 - s**2, 0],
+        [0, 0, 0, -s, 0, c],
+    ], dtype=float)
 
-    Ts = Matrix([[c**2, 0, s**2, 0, 2*s*c, 0],
-                 [0, 1, 0, 0, 0, 0],
-                 [s**2, 0, c**2, 0, -2*s*c, 0],
-                 [0, 0, 0, c, 0, s],
-                 [-s*c, 0,  s*c, 0, c**2 - s**2, 0],
-                 [0, 0, 0, -s, 0, c]])
+    Cxyz = Te @ C123 @ Ts
+    Q = np.linalg.inv(Cxyz[:3, :3])
+    G = np.linalg.inv(Cxyz[3:, 3:])
 
-    # Rotated compliance matrix
-    Cxyz = simplify(Te * C123 * Ts)
+    # Integrate over one wavelength (x-direction)
+    # Use endpoint=True so trapezoid covers [0,p]
+    xs = np.linspace(0.0, p, int(n_int), endpoint=True)
+    a = 2.0 * np.pi / p
 
-    # Reduced rotated stiffness matrices
-    Cxyz_num = Cxyz.subs(x, 0).evalf()
-    Q = np.linalg.inv(np.array(Cxyz_num[:3, :3]).astype(np.float64))
-    G = np.linalg.inv(np.array(Cxyz_num[3:, 3:]).astype(np.float64))
+    theta = np.arctan(b * np.cos(a * xs))
+    tv = t / np.cos(theta)
+    H = (f_start / 2.0) * np.sin(a * xs)
+    d = H**2 * tv + tv**3 / 12.0
 
-    # Vertical thickness of fluting
-    tv = t / cos(theta)
+    tv_int = np.trapz(tv, xs) / p
+    d_int = np.trapz(d, xs) / p
 
-    z = H
-    d = H**2 * tv + tv**3 / 12
+    # A, D, F (Q and G are constant here)
+    A = np.zeros((3, 3), dtype=float)
+    Dm = np.zeros((3, 3), dtype=float)
+    Fm = np.zeros((2, 2), dtype=float)
 
-    # Homogenization through the thickness (z-direction)
-    A11 = lambda x_val: float(tv.subs(x, x_val) * Q[0, 0])
-    A12 = lambda x_val: float(tv.subs(x, x_val) * Q[0, 1])
-    A21 = lambda x_val: float(tv.subs(x, x_val) * Q[1, 0])
-    A22 = lambda x_val: float(tv.subs(x, x_val) * Q[1, 1])
-    A33 = lambda x_val: float(tv.subs(x, x_val) * Q[2, 2])
-    D11 = lambda x_val: float(d.subs(x, x_val) * Q[0, 0])
-    D12 = lambda x_val: float(d.subs(x, x_val) * Q[0, 1])
-    D21 = lambda x_val: float(d.subs(x, x_val) * Q[1, 0])
-    D22 = lambda x_val: float(d.subs(x, x_val) * Q[1, 1])
-    D33 = lambda x_val: float(d.subs(x, x_val) * Q[2, 2])
-    F11 = lambda x_val: float(tv.subs(x, x_val) * G[0, 0])
-    F22 = lambda x_val: float(tv.subs(x, x_val) * G[1, 1])
+    A[:2, :2] = tv_int * Q[:2, :2]
+    A[2, 2] = tv_int * Q[2, 2]
 
-    # Homogenization along the MD (x-direction)
-    A = np.zeros((3, 3))
-    D = np.zeros((3, 3))
-    F = np.zeros((2, 2))
-    A[0, 0] = (1 / p) * quad(A11, 0, p)[0]
-    A[0, 1] = (1 / p) * quad(A12, 0, p)[0]
-    A[1, 0] = (1 / p) * quad(A21, 0, p)[0]
-    A[1, 1] = (1 / p) * quad(A22, 0, p)[0]
-    A[2, 2] = (1 / p) * quad(A33, 0, p)[0]
-    D[0, 0] = (1 / p) * quad(D11, 0, p)[0]
-    D[0, 1] = (1 / p) * quad(D12, 0, p)[0]
-    D[1, 0] = (1 / p) * quad(D21, 0, p)[0]
-    D[1, 1] = (1 / p) * quad(D22, 0, p)[0]
-    D[2, 2] = (1 / p) * quad(D33, 0, p)[0]
-    F[0, 0] = (1 / p) * quad(F11, 0, p)[0]
-    F[1, 1] = (1 / p) * quad(F22, 0, p)[0]
+    Dm[:2, :2] = d_int * Q[:2, :2]
+    Dm[2, 2] = d_int * Q[2, 2]
 
-    # Partially inverted components of ABD (Gibson, 2012)
+    Fm[0, 0] = tv_int * G[0, 0]
+    Fm[1, 1] = tv_int * G[1, 1]
+
+    # Inversion (B=0)
     As = np.linalg.inv(A)
-    Bs = -np.linalg.inv(A) @ np.zeros((3, 3))  # Since B is zero
-    Ds = D - np.zeros((3, 3)) @ Bs
-
-    # Fully inverted components of ABD (Gibson, 2012)
-    Ai = As - (Bs @ np.linalg.inv(Ds) @ Bs)
-    Bi = Bs @ np.linalg.inv(Ds)
+    Ds = Dm
+    Ai = As
     Di = np.linalg.inv(Ds)
-    Fi = np.linalg.inv(F)
 
     # Effective thickness (Marek & Garbowski, 2015)
-    th = np.sqrt(12 * (D[0, 0] + D[1, 1] + D[2, 2]) / (A[0, 0] + A[1, 1] + A[2, 2]))
+    th = np.sqrt(12.0 * (Dm[0, 0] + Dm[1, 1] + Dm[2, 2]) / (A[0, 0] + A[1, 1] + A[2, 2]))
 
-    Eye = 1 / (th*Ai[1, 1])
-    Ez = 12 / (th**3 * Di[2, 2])  # Correct component for Ez
-    Ezeff = (Ez*th + E3*(X[0] + X[4]))/(th + (X[0] + X[4]))
-    Eyeff = (Eye*th + E2*(X[0] + X[4]))/(th + (X[0] + X[4]))
+    Eye = 1.0 / (th * Ai[1, 1])
+    Ez = 12.0 / (th**3 * Di[2, 2])
+
+    t_liners = float(X[0] + X[4])
+    Ezeff = (Ez * th + E3 * t_liners) / (th + t_liners)
+    Eyeff = (Eye * th + E2 * t_liners) / (th + t_liners)
+
     return Ezeff, Eyeff
+
 
 def critical_stress(X):
     cc = True
@@ -412,3 +427,38 @@ def critical_stress(X):
     return sigma_cr_fin, cc
 
 
+
+
+
+def calculate_ez_mc(X, material: str = "uncoated", n_samples: int = 1000, seed: int = 0, override_thickness: bool = True):
+    """Monte Carlo wrapper around calculate_ez.
+
+    Returns
+    -------
+    list[float]
+        [mean(Ezeff), std(Ezeff), mean(Eyeff), std(Eyeff)]
+    """
+    key = material.strip().lower()
+    if key not in MATERIALS:
+        raise ValueError(f"Unknown material '{material}'. Use one of: {list(MATERIALS.keys())}")
+
+    params = MATERIALS[key]
+    rng = np.random.default_rng(seed)
+    E1_s = _sample_positive_normal(params["E1_mean"], params["E1_std"], n_samples, rng)
+    E2_s = _sample_positive_normal(params["E2_mean"], params["E2_std"], n_samples, rng)
+
+    Xb = np.asarray(X, dtype=float).copy()
+    if override_thickness:
+        t_paper = float(params["t_paper"])
+        # Assumption consistent with this script: liner + flute thicknesses live in X[0], X[1], X[4]
+        if Xb.size >= 5:
+            Xb[0] = t_paper
+            Xb[1] = t_paper
+            Xb[4] = t_paper
+
+    ez = np.empty(n_samples, dtype=float)
+    ey = np.empty(n_samples, dtype=float)
+    for k in range(n_samples):
+        ez[k], ey[k] = calculate_ez(Xb, E1=float(E1_s[k]), E2=float(E2_s[k]))
+
+    return [float(ez.mean()), float(ez.std(ddof=1)), float(ey.mean()), float(ey.std(ddof=1))]

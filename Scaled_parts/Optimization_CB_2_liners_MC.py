@@ -47,7 +47,7 @@ def calculate_ez(X):
     #E2 = 0.918e9     # Young's modulus CD [Pa]
     #E3 = E1/190  # E1 / 190
 
-    E1 = 1e9
+    E1 = 7e9
     E2 = E1/2
     E3 = E1/190
 

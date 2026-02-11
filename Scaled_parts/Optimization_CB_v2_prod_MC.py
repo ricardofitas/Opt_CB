@@ -91,6 +91,54 @@ def compute_curvature_radius(x, y):
     return radius, curvature
 
 
+def plot_nurbs_vs_fillet_geometry_true_arcs_fixed(X, r1_opt, r2_opt):
+    d1, d2, d3, d4, d5 = X[:5]
+    total_length = sum([d1, d2, d3, d4, d5])
+    norm = lambda x: x / total_length
+
+    AAA = np.array([0,
+                    norm(d1),
+                    norm(d1 + d2),
+                    norm(d1 + d2 + d3),
+                    norm(d1 + d2 + d3 + d4),
+                    1])
+    BBB = np.array([0, 0, 1, 1, 0, 0])
+
+    lambda_ = 5.65  # m
+    Amp = 2.65      # m
+
+    points = np.column_stack((AAA * lambda_, BBB * Amp))
+
+    #fig, ax = plt.subplots(figsize=(12, 5))
+
+    fillet_indices = [2, 4, 6, 8]
+    i = 0
+    while i < len(points) - 1:
+        if (i + 1 in fillet_indices) and (i > 0 and i + 2 < len(points)):
+            p_start = points[i]
+            p_corner = points[i + 1]
+            p_end = points[i + 2]
+            radius = r1_opt / 1000 if i + 1 in [2, 8] else r2_opt / 1000
+            arc_x, arc_y = compute_fillet_arc_safe(p_start, p_corner, p_end, radius)
+
+            if arc_x.size > 0:
+                arc_start = np.array([arc_x[0], arc_y[0]])
+                arc_end = np.array([arc_x[-1], arc_y[-1]])
+                #ax.plot([p_start[0], arc_start[0]], [p_start[1], arc_start[1]], 'b--')
+                #ax.plot(arc_x, arc_y, color='orange')
+                #ax.plot([arc_end[0], p_end[0]], [arc_end[1], p_end[1]], 'b--')
+                i += 2
+                continue
+
+        #ax.plot([points[i, 0], points[i + 1, 0]], [points[i, 1], points[i + 1, 1]], 'b--')
+        i += 1
+
+    #ax.set_title("Optimized Geometry with True Fillet Arcs (Corrected)")
+    #ax.set_xlabel("X [m]")
+    #ax.set_ylabel("Y [m]")
+    #ax.grid(True)
+    #plt.tight_layout()
+    #plt.show()
     
 def robust_percentile_radius(curvature, percentile=5):
     # Smooth to avoid local spikes
@@ -149,8 +197,8 @@ def opt_calc_prod(X):
     distance = 1
     
     # Periodic length and amplitude
-    lambda_ = 5.65e-3*10/2.65
-    Amp = 2.65e-3*10/2.65
+    lambda_ = 5.65e-3
+    Amp = 2.65e-3
     
     suma = X[0] + X[1] + X[2] + X[3] +  X[4]
     d1 = X[0]/ suma #0.5

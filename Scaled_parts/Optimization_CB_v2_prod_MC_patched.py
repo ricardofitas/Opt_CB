@@ -10,6 +10,35 @@ import matplotlib.pyplot as plt
 from numpy import trapz
 from scipy.ndimage import gaussian_filter1d
 
+
+# ------------------------------------------------------------
+# Material data + Monte Carlo helpers
+# Units:
+#   - E in Pa (MPa * 1e6)
+#   - thickness in m (mm * 1e-3)
+# ------------------------------------------------------------
+MATERIALS = {
+    "uncoated": {
+        "E1_mean": 2899.0e6,   # MD
+        "E1_std":   33.48e6,
+        "E2_mean": 1044.4e6,   # CD
+        "E2_std":   19.44e6,
+        "t_paper": 0.525e-3,
+    },
+    "coated": {
+        "E1_mean": 2794.0e6,   # MD
+        "E1_std":   63.98e6,
+        "E2_mean": 1162.0e6,   # CD
+        "E2_std":   25.73e6,
+        "t_paper": 0.517e-3,
+    },
+}
+
+def _sample_positive_normal(mean: float, std: float, size: int, rng: np.random.Generator, min_value: float = 1.0e6):
+    """Normal sampling with a simple positivity safeguard (COV is small, so clipping is effectively never active)."""
+    samples = rng.normal(mean, std, size)
+    return np.maximum(samples, min_value)
+
 def build_control_points(X):
     # Normalize distances
     suma = sum(X[:5])
@@ -91,6 +120,54 @@ def compute_curvature_radius(x, y):
     return radius, curvature
 
 
+def plot_nurbs_vs_fillet_geometry_true_arcs_fixed(X, r1_opt, r2_opt):
+    d1, d2, d3, d4, d5 = X[:5]
+    total_length = sum([d1, d2, d3, d4, d5])
+    norm = lambda x: x / total_length
+
+    AAA = np.array([0,
+                    norm(d1),
+                    norm(d1 + d2),
+                    norm(d1 + d2 + d3),
+                    norm(d1 + d2 + d3 + d4),
+                    1])
+    BBB = np.array([0, 0, 1, 1, 0, 0])
+
+    lambda_ = 5.65  # m
+    Amp = 2.65      # m
+
+    points = np.column_stack((AAA * lambda_, BBB * Amp))
+
+    #fig, ax = plt.subplots(figsize=(12, 5))
+
+    fillet_indices = [2, 4, 6, 8]
+    i = 0
+    while i < len(points) - 1:
+        if (i + 1 in fillet_indices) and (i > 0 and i + 2 < len(points)):
+            p_start = points[i]
+            p_corner = points[i + 1]
+            p_end = points[i + 2]
+            radius = r1_opt / 1000 if i + 1 in [2, 8] else r2_opt / 1000
+            arc_x, arc_y = compute_fillet_arc_safe(p_start, p_corner, p_end, radius)
+
+            if arc_x.size > 0:
+                arc_start = np.array([arc_x[0], arc_y[0]])
+                arc_end = np.array([arc_x[-1], arc_y[-1]])
+                #ax.plot([p_start[0], arc_start[0]], [p_start[1], arc_start[1]], 'b--')
+                #ax.plot(arc_x, arc_y, color='orange')
+                #ax.plot([arc_end[0], p_end[0]], [arc_end[1], p_end[1]], 'b--')
+                i += 2
+                continue
+
+        #ax.plot([points[i, 0], points[i + 1, 0]], [points[i, 1], points[i + 1, 1]], 'b--')
+        i += 1
+
+    #ax.set_title("Optimized Geometry with True Fillet Arcs (Corrected)")
+    #ax.set_xlabel("X [m]")
+    #ax.set_ylabel("Y [m]")
+    #ax.grid(True)
+    #plt.tight_layout()
+    #plt.show()
     
 def robust_percentile_radius(curvature, percentile=5):
     # Smooth to avoid local spikes
@@ -133,7 +210,7 @@ def full_opt_process(X):
     r1_opt_weight, r2_opt_weight = optimize_r1_r2_given_X(X)
     return r1_opt_weight, r2_opt_weight, X[5], X[6]
 
-def opt_calc_prod(X):
+def opt_calc_prod(X, E1=1e9, E2=None, paper_thickness=0.0005):
     """X = [thickness liner, thickness flute, amplitude, wavelenght, ...
             d1, d2, d3, d4, d5, r1, r2]
     
@@ -149,8 +226,8 @@ def opt_calc_prod(X):
     distance = 1
     
     # Periodic length and amplitude
-    lambda_ = 5.65e-3*10/2.65
-    Amp = 2.65e-3*10/2.65
+    lambda_ = 5.65e-3
+    Amp = 2.65e-3
     
     suma = X[0] + X[1] + X[2] + X[3] +  X[4]
     d1 = X[0]/ suma #0.5
@@ -165,11 +242,11 @@ def opt_calc_prod(X):
     
 
     constr = True if r1_opt > 0.9 and r2_opt > 0.9 else True  
-    
-    # Material properties
-    E1 = 1e9  # Young's modulus MD [Pa]
-    E2 = E1 / 2  # Young's modulus CD [Pa]
-    t = 0.0005  # Paper thickness [m]
+
+    # Material properties (allow override for Monte Carlo)
+    if E2 is None:
+        E2 = E1 / 2.0
+    t = float(paper_thickness)  # Paper thickness [m]
     epsilon = 1e-6
     E3 = E1 / 190  # (Mann et al., 1979)
     
@@ -431,3 +508,72 @@ def opt_calc_prod(X):
     efficiency = inertia * 10**6 / A_total
     
     return 1/ inertia * 10**(-6), A_total, Ezeff, constr
+
+
+
+def opt_calc_prod_mc(X, material: str = "uncoated", n_samples: int = 200, seed: int = 0):
+    """Monte Carlo wrapper around opt_calc_prod (expensive).
+
+    By default we aggregate the two outputs that are usually used as objectives/constraints:
+      - objective proxy: (1/inertia)*1e-6  (the first return of opt_calc_prod)
+      - Ezeff                      (the third return)
+
+    Returns
+    -------
+    list[float]
+        [mean(obj), std(obj), mean(Ezeff), std(Ezeff)]
+    """
+    key = material.strip().lower()
+    if key not in MATERIALS:
+        raise ValueError(f"Unknown material '{material}'. Use one of: {list(MATERIALS.keys())}")
+
+    params = MATERIALS[key]
+    rng = np.random.default_rng(seed)
+    E1_s = _sample_positive_normal(params["E1_mean"], params["E1_std"], n_samples, rng)
+    E2_s = _sample_positive_normal(params["E2_mean"], params["E2_std"], n_samples, rng)
+    t_paper = float(params["t_paper"])
+
+    obj = np.empty(n_samples, dtype=float)
+    ez = np.empty(n_samples, dtype=float)
+
+    for k in range(n_samples):
+        o, _, ezeff, _ = opt_calc_prod(X, E1=float(E1_s[k]), E2=float(E2_s[k]), paper_thickness=t_paper)
+        obj[k] = float(o)
+        ez[k] = float(ezeff)
+
+    return [float(obj.mean()), float(obj.std(ddof=1)), float(ez.mean()), float(ez.std(ddof=1))]
+
+
+def opt_calc_prod_mc_full(X, material: str = "uncoated", n_samples: int = 200, seed: int = 0):
+    """Same as opt_calc_prod_mc, but returns mean/std for every numeric output."""
+    key = material.strip().lower()
+    if key not in MATERIALS:
+        raise ValueError(f"Unknown material '{material}'. Use one of: {list(MATERIALS.keys())}")
+
+    params = MATERIALS[key]
+    rng = np.random.default_rng(seed)
+    E1_s = _sample_positive_normal(params["E1_mean"], params["E1_std"], n_samples, rng)
+    E2_s = _sample_positive_normal(params["E2_mean"], params["E2_std"], n_samples, rng)
+    t_paper = float(params["t_paper"])
+
+    obj = np.empty(n_samples, dtype=float)
+    area = np.empty(n_samples, dtype=float)
+    ez = np.empty(n_samples, dtype=float)
+    constr = np.empty(n_samples, dtype=bool)
+
+    for k in range(n_samples):
+        o, a, ezeff, c = opt_calc_prod(X, E1=float(E1_s[k]), E2=float(E2_s[k]), paper_thickness=t_paper)
+        obj[k] = float(o)
+        area[k] = float(a)
+        ez[k] = float(ezeff)
+        constr[k] = bool(c)
+
+    return {
+        "obj_mean": float(obj.mean()),
+        "obj_std": float(obj.std(ddof=1)),
+        "A_total_mean": float(area.mean()),
+        "A_total_std": float(area.std(ddof=1)),
+        "Ezeff_mean": float(ez.mean()),
+        "Ezeff_std": float(ez.std(ddof=1)),
+        "constr_true_fraction": float(constr.mean()),
+    }
